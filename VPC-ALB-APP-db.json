@@ -1,0 +1,2476 @@
+{
+   "AWSTemplateFormatVersion": "2010-09-09T00:00:00.000Z",
+   "Description": "This template is from: https://www.wellarchitectedlabs.com/ AWS CloudFormation Sample Template for VPC. Creates a multi-tier network appropriate for a web application  including subnets for application, application load balancer (can disable),  database (can disabled using parameter), and shared services (can disable). **WARNING** You will be billed for the AWS resources created if you create a stack from this template. Copyright 2019-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved. Licensed under the Apache License, Version 2.0 (the \"License\"). You may not use this file except in compliance with the License. A copy of the License is located at    https://www.apache.org/licenses/LICENSE-2.0\nor in the \"license\" file accompanying this file. This file is distributed  on an \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either  express or implied. See the License for the specific language governing  permissions and limitations under the License.",
+   "Parameters": {
+      "NamingPrefix": {
+         "Type": "String",
+         "Description": "The naming prefix for resources created by this template, and exported values that can be referenced by other stacks.",
+         "Default": "WebApp1"
+      },
+      "VPCIPv4CidrBlock": {
+         "Description": "VPC CIDR block for IPv4. Default of 10.0.0.0/16 is recommended for testing.",
+         "Type": "String",
+         "Default": "10.0.0.0/16"
+      },
+      "VPCSubnetIPv4Size": {
+         "Description": "Host bit mask length of each subnet, e.g. default of 8 will be a /24 subnet size.",
+         "Type": "Number",
+         "Default": 8
+      },
+      "VPCNumberOfIPv4Subnets": {
+         "Description": "Number of equally sized IPv4 subnets that will be created within the VPC CIDR block. Default of 256 is recommended for testing.",
+         "Type": "Number",
+         "Default": 256
+      },
+      "VPCSubnetIPv6Size": {
+         "Description": "Host bit mask length of each subnet, e.g. default of 64 will be a /64 subnet size.",
+         "Type": "Number",
+         "Default": 64
+      },
+      "VPCNumberOfIPv6Subnets": {
+         "Description": "Number of equally sized IPv6 subnets that will be created within the VPC CIDR block.",
+         "Type": "Number",
+         "Default": 256
+      },
+      "VPCFlowLogRetention": {
+         "Description": "VPC Flow Log retention time in days. Note that VPC Flow Logs will be deleted when this stack is deleted.",
+         "Type": "String",
+         "Default": 90
+      },
+      "ALB1SubnetsEnabled": {
+         "Description": "Create subnets and other resources for application load balancer (ALB) tier. False disables the ALB tier completely.",
+         "Type": "String",
+         "AllowedValues": [
+            true,
+            false
+         ],
+         "Default": true
+      },
+      "App1SubnetsInternetRoute": {
+         "Description": "Application subnets route to the internet through Nat Gateways (IPv4) or egress only internet gateway (IPv6). If set to true then shared tier also must be enabled.",
+         "Type": "String",
+         "AllowedValues": [
+            true,
+            false
+         ],
+         "Default": true
+      },
+      "App1SubnetsPrivateLinkEndpoints": {
+         "Description": "VPC Endpoints can be used to access example common AWS services privately within a subnet, instead of via a NAT Gateway. Note for testing purposes a NAT Gateway is more cost effective than enabling endpoint services.",
+         "Type": "String",
+         "AllowedValues": [
+            true,
+            false
+         ],
+         "Default": false
+      },
+      "DB1SubnetsEnabled": {
+         "Description": "Create subnets and other resources for database (DB) tier. False disables the DB tier completely.",
+         "Type": "String",
+         "AllowedValues": [
+            true,
+            false
+         ],
+         "Default": true
+      },
+      "DB1TCPPortNumber": {
+         "Description": "TCP/IP port number used in DB tier for Network ACL (NACL). Default is 3306 for MySQL. Examples; 5432 for PostgreSQL, 1433 for SQL Server, , 11211 for Memcache/Elasticache, 6379 for Redis.",
+         "Type": "Number",
+         "Default": 3306
+      },
+      "Shared1SubnetsEnabled": {
+         "Description": "Create subnets for shared tier. Set to true when enabling application route to internet parameter as the shared tier contains NAT gateways that allow IPv4 traffic in the application tier to connect to the internet. False disables the shared tier completely.",
+         "Type": "String",
+         "AllowedValues": [
+            true,
+            false
+         ],
+         "Default": true
+      }
+   },
+   "Conditions": {
+      "ALB1Enabled": null,
+      "App1SubnetsInternetRouteEnabled": null,
+      "App1SubnetsPrivateLinkEndpointsEnabled": null,
+      "DB1Enabled": null,
+      "Shared1Enabled": null
+   },
+   "Resources": {
+      "VPC": {
+         "Type": "AWS::EC2::VPC",
+         "Properties": {
+            "CidrBlock": null,
+            "EnableDnsSupport": true,
+            "EnableDnsHostnames": true,
+            "InstanceTenancy": "default",
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "IPv6CidrBlock": {
+         "Type": "AWS::EC2::VPCCidrBlock",
+         "Properties": {
+            "AmazonProvidedIpv6CidrBlock": true,
+            "VpcId": null
+         }
+      },
+      "VPCFlowLogGroup": {
+         "Type": "AWS::Logs::LogGroup",
+         "DeletionPolicy": "Delete",
+         "Properties": {
+            "RetentionInDays": null
+         }
+      },
+      "VPCFlowLog": {
+         "Type": "AWS::EC2::FlowLog",
+         "DependsOn": "VPCFlowLogGroup",
+         "Properties": {
+            "DeliverLogsPermissionArn": null,
+            "LogDestinationType": "cloud-watch-logs",
+            "LogGroupName": null,
+            "ResourceId": null,
+            "ResourceType": "VPC",
+            "TrafficType": "ALL"
+         }
+      },
+      "VPCFlowLogRole": {
+         "Type": "AWS::IAM::Role",
+         "Properties": {
+            "RoleName": null,
+            "AssumeRolePolicyDocument": {
+               "Version": "2012-10-17T00:00:00.000Z",
+               "Statement": [
+                  {
+                     "Effect": "Allow",
+                     "Principal": {
+                        "Service": [
+                           "vpc-flow-logs.amazonaws.com"
+                        ]
+                     },
+                     "Action": [
+                        "sts:AssumeRole"
+                     ]
+                  }
+               ]
+            },
+            "Path": "/",
+            "Policies": [
+               {
+                  "PolicyName": "VPCFlowLog",
+                  "PolicyDocument": {
+                     "Version": "2012-10-17T00:00:00.000Z",
+                     "Statement": [
+                        {
+                           "Effect": "Allow",
+                           "Action": [
+                              "logs:CreateLogGroup",
+                              "logs:CreateLogStream",
+                              "logs:DescribeLogGroups",
+                              "logs:DescribeLogStreams",
+                              "logs:PutLogEvents"
+                           ],
+                           "Resource": null
+                        }
+                     ]
+                  }
+               }
+            ]
+         }
+      },
+      "IGW": {
+         "Type": "AWS::EC2::InternetGateway",
+         "Properties": {
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "IGWAttach": {
+         "Type": "AWS::EC2::VPCGatewayAttachment",
+         "Properties": {
+            "VpcId": null,
+            "InternetGatewayId": null
+         }
+      },
+      "IGWEgressOnlyv6": {
+         "Type": "AWS::EC2::EgressOnlyInternetGateway",
+         "Properties": {
+            "VpcId": null
+         }
+      },
+      "InternetRoute": {
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "GatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "InternetRoutev6": {
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationIpv6CidrBlock": "::/0",
+            "RouteTableId": null,
+            "EgressOnlyInternetGatewayId": null
+         }
+      },
+      "InternetRouteTable": {
+         "Type": "AWS::EC2::RouteTable",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "ALB1Subnet1": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ],
+            "VpcId": null
+         }
+      },
+      "ALB1Subnet2": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ],
+            "VpcId": null
+         }
+      },
+      "ALB1Subnet3": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ],
+            "VpcId": null
+         }
+      },
+      "ALB1Subnet1RouteToInternet": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "DependsOn": [
+            "ALB1Subnet1",
+            "InternetRouteTable"
+         ],
+         "Properties": {
+            "RouteTableId": null,
+            "SubnetId": null
+         }
+      },
+      "ALB1Subnet2RouteToInternet": {
+         "Condition": "ALB1Enabled",
+         "DependsOn": [
+            "ALB1Subnet2",
+            "InternetRouteTable"
+         ],
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "Properties": {
+            "RouteTableId": null,
+            "SubnetId": null
+         }
+      },
+      "ALB1Subnet3RouteToInternet": {
+         "Condition": "ALB1Enabled",
+         "DependsOn": [
+            "ALB1Subnet3",
+            "InternetRouteTable"
+         ],
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "Properties": {
+            "RouteTableId": null,
+            "SubnetId": null
+         }
+      },
+      "ALB1NetworkAcl1": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAcl",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "ALB1InFromInternetHTTPAclEntry": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "50",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": "0.0.0.0/0",
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "ALB1InFromInternetHTTPAclEntryv6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "56",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": "::/0",
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "ALB1InFromInternetHTTPSAclEntry": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "100",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": "0.0.0.0/0",
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "ALB1InFromInternetHTTPSAclEntryv6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "106",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": "::/0",
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "ALB1InNetworkEphemeralVPCAclEntry1": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1100",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "ALB1InNetworkEphemeralVPCAclEntry1v6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1106",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "ALB1InNetworkEphemeralVPCAclEntry2": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1200",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "ALB1InNetworkEphemeralVPCAclEntry2v6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1206",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "ALB1InNetworkEphemeralVPCAclEntry3": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1300",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "ALB1InNetworkEphemeralVPCAclEntry3v6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1306",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "ALB1OutNetworkEphemeralAclEntry": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1000",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": "0.0.0.0/0",
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "ALB1OutNetworkEphemeralAclEntryv6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1006",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": "::/0",
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPVPCAclEntry1": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1100",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPVPCAclEntry1v6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1106",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPVPCAclEntry2": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1200",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPVPCAclEntry2v6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1206",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPVPCAclEntry3": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1300",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPVPCAclEntry3v6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "1306",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPSVPCAclEntry1": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "2100",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPSVPCAclEntry1v6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "2106",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPSVPCAclEntry2": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "2200",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPSVPCAclEntry2v6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "2206",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPSVPCAclEntry3": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "2300",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "ALB1OutNetworkHTTPSVPCAclEntry3v6": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "2306",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "ALB1SubnetNetworkAclAssocation1": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "ALB1SubnetNetworkAclAssocation2": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "ALB1SubnetNetworkAclAssocation3": {
+         "Condition": "ALB1Enabled",
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "App1Subnet1": {
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ],
+            "VpcId": null
+         }
+      },
+      "App1Subnet2": {
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ],
+            "VpcId": null
+         }
+      },
+      "App1Subnet3": {
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ],
+            "VpcId": null
+         }
+      },
+      "App1RouteTable1": {
+         "Type": "AWS::EC2::RouteTable",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "App1InternetRoute1": {
+         "Condition": "App1SubnetsInternetRouteEnabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "NatGatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "App1InternetRoute1v6": {
+         "Condition": "App1SubnetsInternetRouteEnabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationIpv6CidrBlock": "::/0",
+            "EgressOnlyInternetGatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "App1RouteTable2": {
+         "Type": "AWS::EC2::RouteTable",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "App1InternetRoute2": {
+         "Condition": "App1SubnetsInternetRouteEnabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "NatGatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "App1InternetRoute2v6": {
+         "Condition": "App1SubnetsInternetRouteEnabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationIpv6CidrBlock": "::/0",
+            "EgressOnlyInternetGatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "App1RouteTable3": {
+         "Type": "AWS::EC2::RouteTable",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "App1InternetRoute3": {
+         "Condition": "App1SubnetsInternetRouteEnabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "NatGatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "App1InternetRoute3v6": {
+         "Condition": "App1SubnetsInternetRouteEnabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationIpv6CidrBlock": "::/0",
+            "EgressOnlyInternetGatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "App1SubnetRouteTableAssociation1": {
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "RouteTableId": null
+         }
+      },
+      "App1SubnetRouteTableAssociation2": {
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "RouteTableId": null
+         }
+      },
+      "App1SubnetRouteTableAssociation3": {
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "RouteTableId": null
+         }
+      },
+      "App1NetworkAcl1": {
+         "Type": "AWS::EC2::NetworkAcl",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "App1InNetworkHTTPAclEntry": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "50",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "App1InNetworkHTTPAclEntryv6": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "56",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "App1InNetworkHTTPSAclEntry": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "100",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "App1InNetworkHTTPSAclEntryv6": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "106",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "App1InNetworkEphemeralAclEntry": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "150",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": "0.0.0.0/0",
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "App1InNetworkEphemeralAclEntryv6": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "156",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": "::/0",
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "App1OutNetworkHTTPAclEntry": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "100",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": "0.0.0.0/0",
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "App1OutNetworkHTTPAclEntryv6": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "106",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": "::/0",
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "App1OutNetworkHTTPSAclEntry": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "150",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": "0.0.0.0/0",
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "App1OutNetworkHTTPSAclEntryv6": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "156",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": "::/0",
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "App1OutNetworVPCAclEntry": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "200",
+            "Protocol": "-1",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "1",
+               "To": "65535"
+            }
+         }
+      },
+      "App1OutNetworVPCAclEntryv6": {
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "206",
+            "Protocol": "-1",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "1",
+               "To": "65535"
+            }
+         }
+      },
+      "App1SubnetNetworkAclAssocation1": {
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "App1SubnetNetworkAclAssocation2": {
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "App1SubnetNetworkAclAssocation3": {
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "App1VPCEndpointS3": {
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "PolicyDocument": {
+               "Version": "2012-10-17",
+               "Statement": [
+                  {
+                     "Effect": "Allow",
+                     "Principal": "*",
+                     "Action": "s3:*",
+                     "Resource": null
+                  }
+               ]
+            },
+            "RouteTableIds": [
+               null,
+               null,
+               null
+            ],
+            "ServiceName": null,
+            "VpcId": null
+         }
+      },
+      "App1VPCEndpointDynamoDB": {
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "PolicyDocument": {
+               "Version": "2012-10-17",
+               "Statement": [
+                  {
+                     "Effect": "Allow",
+                     "Principal": "*",
+                     "Action": "dynamodb:*",
+                     "Resource": null
+                  }
+               ]
+            },
+            "RouteTableIds": [
+               null,
+               null,
+               null
+            ],
+            "ServiceName": null,
+            "VpcId": null
+         }
+      },
+      "App1EndpointSecurityGroup": {
+         "Condition": "App1SubnetsPrivateLinkEndpointsEnabled",
+         "DependsOn": "App1Subnet3",
+         "Type": "AWS::EC2::SecurityGroup",
+         "Properties": {
+            "GroupDescription": "Enable access to endpoints",
+            "SecurityGroupIngress": [
+               {
+                  "IpProtocol": "tcp",
+                  "FromPort": "443",
+                  "ToPort": "443",
+                  "CidrIp": null
+               },
+               {
+                  "IpProtocol": "tcp",
+                  "FromPort": "443",
+                  "ToPort": "443",
+                  "CidrIpv6": null
+               },
+               {
+                  "IpProtocol": "tcp",
+                  "FromPort": "443",
+                  "ToPort": "443",
+                  "CidrIp": null
+               },
+               {
+                  "IpProtocol": "tcp",
+                  "FromPort": "443",
+                  "ToPort": "443",
+                  "CidrIpv6": null
+               },
+               {
+                  "IpProtocol": "tcp",
+                  "FromPort": "443",
+                  "ToPort": "443",
+                  "CidrIp": null
+               },
+               {
+                  "IpProtocol": "tcp",
+                  "FromPort": "443",
+                  "ToPort": "443",
+                  "CidrIpv6": null
+               }
+            ],
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ],
+            "VpcId": null
+         }
+      },
+      "App1VPCEndpointec2": {
+         "Condition": "App1SubnetsPrivateLinkEndpointsEnabled",
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "VpcId": null,
+            "ServiceName": null,
+            "VpcEndpointType": "Interface",
+            "PrivateDnsEnabled": true,
+            "SubnetIds": [
+               null,
+               null,
+               null
+            ],
+            "SecurityGroupIds": [
+               null
+            ]
+         }
+      },
+      "App1VPCEndpointec2messages": {
+         "Condition": "App1SubnetsPrivateLinkEndpointsEnabled",
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "VpcId": null,
+            "ServiceName": null,
+            "VpcEndpointType": "Interface",
+            "PrivateDnsEnabled": true,
+            "SubnetIds": [
+               null,
+               null,
+               null
+            ],
+            "SecurityGroupIds": [
+               null
+            ]
+         }
+      },
+      "App1VPCEndpointcloudformation": {
+         "Condition": "App1SubnetsPrivateLinkEndpointsEnabled",
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "VpcId": null,
+            "ServiceName": null,
+            "VpcEndpointType": "Interface",
+            "PrivateDnsEnabled": true,
+            "SubnetIds": [
+               null,
+               null,
+               null
+            ],
+            "SecurityGroupIds": [
+               null
+            ]
+         }
+      },
+      "App1VPCEndpointlogs": {
+         "Condition": "App1SubnetsPrivateLinkEndpointsEnabled",
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "VpcId": null,
+            "ServiceName": null,
+            "VpcEndpointType": "Interface",
+            "PrivateDnsEnabled": true,
+            "SubnetIds": [
+               null,
+               null,
+               null
+            ],
+            "SecurityGroupIds": [
+               null
+            ]
+         }
+      },
+      "App1VPCEndpointmonitoring": {
+         "Condition": "App1SubnetsPrivateLinkEndpointsEnabled",
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "VpcId": null,
+            "ServiceName": null,
+            "VpcEndpointType": "Interface",
+            "PrivateDnsEnabled": true,
+            "SubnetIds": [
+               null,
+               null,
+               null
+            ],
+            "SecurityGroupIds": [
+               null
+            ]
+         }
+      },
+      "App1VPCEndpointssm": {
+         "Condition": "App1SubnetsPrivateLinkEndpointsEnabled",
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "VpcId": null,
+            "ServiceName": null,
+            "VpcEndpointType": "Interface",
+            "PrivateDnsEnabled": true,
+            "SubnetIds": [
+               null,
+               null,
+               null
+            ],
+            "SecurityGroupIds": [
+               null
+            ]
+         }
+      },
+      "App1VPCEndpointssmmessages": {
+         "Condition": "App1SubnetsPrivateLinkEndpointsEnabled",
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "VpcId": null,
+            "ServiceName": null,
+            "VpcEndpointType": "Interface",
+            "PrivateDnsEnabled": true,
+            "SubnetIds": [
+               null,
+               null,
+               null
+            ],
+            "SecurityGroupIds": [
+               null
+            ]
+         }
+      },
+      "App1VPCEndpointsecretsmanager": {
+         "Condition": "App1SubnetsPrivateLinkEndpointsEnabled",
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "VpcId": null,
+            "ServiceName": null,
+            "VpcEndpointType": "Interface",
+            "PrivateDnsEnabled": true,
+            "SubnetIds": [
+               null,
+               null,
+               null
+            ],
+            "SecurityGroupIds": [
+               null
+            ]
+         }
+      },
+      "App1VPCEndpointkms": {
+         "Condition": "App1SubnetsPrivateLinkEndpointsEnabled",
+         "Type": "AWS::EC2::VPCEndpoint",
+         "Properties": {
+            "VpcId": null,
+            "ServiceName": null,
+            "VpcEndpointType": "Interface",
+            "PrivateDnsEnabled": true,
+            "SubnetIds": [
+               null,
+               null,
+               null
+            ],
+            "SecurityGroupIds": [
+               null
+            ]
+         }
+      },
+      "Shared1Subnet1": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ],
+            "VpcId": null
+         }
+      },
+      "Shared1Subnet2": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ],
+            "VpcId": null
+         }
+      },
+      "Shared1Subnet3": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ],
+            "VpcId": null
+         }
+      },
+      "Shared1NATGW1": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NatGateway",
+         "Properties": {
+            "AllocationId": {
+               "Fn::GetAtt": [
+                  "Shared1NAT1EIP",
+                  "AllocationId"
+               ]
+            },
+            "SubnetId": {
+               "Ref": "Shared1Subnet1"
+            },
+            "Tags": null
+         }
+      },
+      "Shared1NAT1EIP": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::EIP",
+         "Properties": {
+            "Domain": "vpc"
+         }
+      },
+      "Shared1NATGW2": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NatGateway",
+         "Properties": {
+            "AllocationId": {
+               "Fn::GetAtt": [
+                  "Shared1NAT2EIP",
+                  "AllocationId"
+               ]
+            },
+            "SubnetId": {
+               "Ref": "Shared1Subnet2"
+            },
+            "Tags": null
+         }
+      },
+      "Shared1NAT2EIP": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::EIP",
+         "Properties": {
+            "Domain": "vpc"
+         }
+      },
+      "Shared1NATGW3": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NatGateway",
+         "Properties": {
+            "AllocationId": {
+               "Fn::GetAtt": [
+                  "Shared1NAT3EIP",
+                  "AllocationId"
+               ]
+            },
+            "SubnetId": {
+               "Ref": "Shared1Subnet3"
+            },
+            "Tags": null
+         }
+      },
+      "Shared1NAT3EIP": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::EIP",
+         "Properties": {
+            "Domain": "vpc"
+         }
+      },
+      "Shared1Route1": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "GatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "Shared1Route1v6": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationIpv6CidrBlock": "::/0",
+            "EgressOnlyInternetGatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "Shared1RouteTable1": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::RouteTable",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "Shared1SubnetRouteTableAssociation1": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "DependsOn": [
+            "Shared1Subnet1",
+            "Shared1RouteTable1"
+         ],
+         "Properties": {
+            "RouteTableId": null,
+            "SubnetId": null
+         }
+      },
+      "Shared1Route2": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "GatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "Shared1Route2v6": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationIpv6CidrBlock": "::/0",
+            "EgressOnlyInternetGatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "Shared1RouteTable2": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::RouteTable",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "Shared1SubnetRouteTableAssociation2": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "DependsOn": [
+            "Shared1Subnet2",
+            "Shared1RouteTable2"
+         ],
+         "Properties": {
+            "RouteTableId": null,
+            "SubnetId": null
+         }
+      },
+      "Shared1Route3": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "GatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "Shared1Route3v6": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::Route",
+         "Properties": {
+            "DestinationIpv6CidrBlock": "::/0",
+            "EgressOnlyInternetGatewayId": null,
+            "RouteTableId": null
+         }
+      },
+      "Shared1RouteTable3": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::RouteTable",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "Shared1SubnetRouteTableAssociation3": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "DependsOn": [
+            "Shared1Subnet3",
+            "Shared1RouteTable3"
+         ],
+         "Properties": {
+            "RouteTableId": null,
+            "SubnetId": null
+         }
+      },
+      "Shared1NetworkAcl1": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAcl",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "Shared1InNetworkEphemeralAclEntry1": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": {
+               "Ref": "Shared1NetworkAcl1"
+            },
+            "RuleNumber": "50",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": "0.0.0.0/0",
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "Shared1InNetworkEphemeralAclEntry1v6": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": {
+               "Ref": "Shared1NetworkAcl1"
+            },
+            "RuleNumber": "56",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": "::/0",
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "Shared1InNetworkApp1Entry1": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": {
+               "Ref": "Shared1NetworkAcl1"
+            },
+            "RuleNumber": "100",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "0",
+               "To": "65535"
+            }
+         }
+      },
+      "Shared1InNetworkApp1Entry1v6": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": {
+               "Ref": "Shared1NetworkAcl1"
+            },
+            "RuleNumber": "106",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "0",
+               "To": "65535"
+            }
+         }
+      },
+      "Shared1InNetworkApp1Entry2": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": {
+               "Ref": "Shared1NetworkAcl1"
+            },
+            "RuleNumber": "150",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "0",
+               "To": "65535"
+            }
+         }
+      },
+      "Shared1InNetworkApp1Entry2v6": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": {
+               "Ref": "Shared1NetworkAcl1"
+            },
+            "RuleNumber": "156",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "0",
+               "To": "65535"
+            }
+         }
+      },
+      "Shared1InNetworkApp1Entry3": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": {
+               "Ref": "Shared1NetworkAcl1"
+            },
+            "RuleNumber": "200",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "0",
+               "To": "65535"
+            }
+         }
+      },
+      "Shared1InNetworkApp1Entry3v6": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": {
+               "Ref": "Shared1NetworkAcl1"
+            },
+            "RuleNumber": "206",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "0",
+               "To": "65535"
+            }
+         }
+      },
+      "Shared1OutNetworkEphemeralAclEntry": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "50",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": "0.0.0.0/0",
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "Shared1OutNetworkEphemeralAclEntryv6": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "56",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": "::/0",
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "Shared1OutNetworkHTTPAclEntry": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "100",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": "0.0.0.0/0",
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "Shared1OutNetworkHTTPAclEntryv6": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "106",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": "::/0",
+            "PortRange": {
+               "From": "80",
+               "To": "80"
+            }
+         }
+      },
+      "Shared1OutNetworkHTTPSAclEntry": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "200",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": "0.0.0.0/0",
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "Shared1OutNetworkHTTPSAclEntryv6": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "206",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": "::/0",
+            "PortRange": {
+               "From": "443",
+               "To": "443"
+            }
+         }
+      },
+      "Shared1Subnet1NetworkAclAssocation1": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "Shared1Subnet1NetworkAclAssocation2": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "Shared1Subnet1NetworkAclAssocation3": {
+         "Condition": "Shared1Enabled",
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "DB1Subnet1": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "VpcId": null,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "DB1Subnet2": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "VpcId": null,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "DB1Subnet3": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::Subnet",
+         "DependsOn": "IPv6CidrBlock",
+         "Properties": {
+            "AssignIpv6AddressOnCreation": true,
+            "VpcId": null,
+            "AvailabilityZone": null,
+            "CidrBlock": null,
+            "Ipv6CidrBlock": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "DB1RouteTable1": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::RouteTable",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "DB1RouteTable2": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::RouteTable",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "DB1RouteTable3": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::RouteTable",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "DB1SubnetRouteTableAssociation1": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "RouteTableId": null
+         }
+      },
+      "DB1SubnetRouteTableAssociation2": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "RouteTableId": null
+         }
+      },
+      "DB1SubnetRouteTableAssociation3": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::SubnetRouteTableAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "RouteTableId": null
+         }
+      },
+      "DB1NetworkAcl1": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAcl",
+         "Properties": {
+            "VpcId": null,
+            "Tags": [
+               {
+                  "Key": "Name",
+                  "Value": null
+               }
+            ]
+         }
+      },
+      "DB1InFromApp1AclEntry1": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "50",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": null,
+               "To": null
+            }
+         }
+      },
+      "DB1InFromApp1AclEntry1v6": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "56",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": null,
+               "To": null
+            }
+         }
+      },
+      "DB1InFromApp1AclEntry2": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "100",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": null,
+               "To": null
+            }
+         }
+      },
+      "DB1InFromApp1AclEntry2v6": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "106",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": null,
+               "To": null
+            }
+         }
+      },
+      "DB1InFromApp1AclEntry3": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "150",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": null,
+               "To": null
+            }
+         }
+      },
+      "DB1InFromApp1AclEntry3v6": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "156",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "false",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": null,
+               "To": null
+            }
+         }
+      },
+      "DB1OutNetworkEphemeralAclEntry1": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "50",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "DB1OutNetworkEphemeralAclEntry1v6": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "56",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "DB1OutNetworkEphemeralAclEntry2": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "100",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "DB1OutNetworkEphemeralAclEntry2v6": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "106",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "DB1OutNetworkEphemeralAclEntry3": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "150",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "DB1OutNetworkEphemeralAclEntry3v6": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::NetworkAclEntry",
+         "Properties": {
+            "NetworkAclId": null,
+            "RuleNumber": "156",
+            "Protocol": "6",
+            "RuleAction": "allow",
+            "Egress": "true",
+            "Ipv6CidrBlock": null,
+            "PortRange": {
+               "From": "1024",
+               "To": "65535"
+            }
+         }
+      },
+      "DB1SubnetNetworkAclAssocation1": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "DB1SubnetNetworkAclAssocation2": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      },
+      "DB1SubnetNetworkAclAssocation3": {
+         "Condition": "DB1Enabled",
+         "Type": "AWS::EC2::SubnetNetworkAclAssociation",
+         "Properties": {
+            "SubnetId": null,
+            "NetworkAclId": null
+         }
+      }
+   },
+   "Outputs": {
+      "AppVPC": {
+         "Description": "VPC",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "AppVPCIPv4CIDR": {
+         "Description": "VPC CIDR for IPv4",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "AppVPCIPv6CIDR": {
+         "Description": "VPC CIDR for IPv6",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "AppVPCFlowLogsArn": {
+         "Description": "ARN of VPC Flow Logs Group",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "ALB1Subnet1": {
+         "Condition": "ALB1Enabled",
+         "Description": "ALB1Subnet1",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "ALB1Subnet2": {
+         "Condition": "ALB1Enabled",
+         "Description": "ALB1Subnet2",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "ALB1Subnet3": {
+         "Condition": "ALB1Enabled",
+         "Description": "ALB1Subnet3",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "App1Subnet1": {
+         "Description": "App1Subnet1",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "App1Subnet2": {
+         "Description": "App1Subnet2",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "App1Subnet3": {
+         "Description": "App1Subnet3",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "DB1Subnet1": {
+         "Condition": "DB1Enabled",
+         "Description": "DB1Subnet1",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "DB1Subnet2": {
+         "Condition": "DB1Enabled",
+         "Description": "DB1Subnet2",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "DB1Subnet3": {
+         "Condition": "DB1Enabled",
+         "Description": "DB1Subnet3",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "Shared1Subnet1": {
+         "Condition": "Shared1Enabled",
+         "Description": "Shared1Subnet1",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "Shared1Subnet2": {
+         "Condition": "Shared1Enabled",
+         "Description": "Shared1Subnet2",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      },
+      "Shared1Subnet3": {
+         "Condition": "Shared1Enabled",
+         "Description": "Shared1Subnet3",
+         "Value": null,
+         "Export": {
+            "Name": null
+         }
+      }
+   },
+   "Metadata": {
+      "AWS::CloudFormation::Interface": {
+         "ParameterGroups": [
+            {
+               "Label": {
+                  "default": "General Configuration"
+               },
+               "Parameters": [
+                  "NamingPrefix",
+                  "VPCIPv4CidrBlock",
+                  "VPCSubnetIPv4Size",
+                  "VPCNumberOfIPv4Subnets",
+                  "VPCSubnetIPv6Size",
+                  "VPCNumberOfIPv6Subnets",
+                  "VPCFlowLogRetention"
+               ]
+            },
+            {
+               "Label": {
+                  "default": "Application Load Balancer Tier"
+               },
+               "Parameters": [
+                  "ALB1SubnetsEnabled"
+               ]
+            },
+            {
+               "Label": {
+                  "default": "Application Tier"
+               },
+               "Parameters": [
+                  "App1SubnetsInternetRoute",
+                  "App1SubnetsPrivateLinkEndpoints"
+               ]
+            },
+            {
+               "Label": {
+                  "default": "Database Tier"
+               },
+               "Parameters": [
+                  "DB1SubnetsEnabled",
+                  "DB1TCPPortNumber"
+               ]
+            },
+            {
+               "Label": {
+                  "default": "Shared Tier"
+               },
+               "Parameters": [
+                  "Shared1SubnetsEnabled"
+               ]
+            }
+         ],
+         "ParameterLabels": {
+            "NamingPrefix": {
+               "default": "Naming Prefix"
+            },
+            "VPCIPv4CidrBlock": {
+               "default": "VPC IPv4 CIDR block"
+            },
+            "VPCSubnetIPv4Size": {
+               "default": "Size of each IPv4 subnet in the VPC"
+            },
+            "VPCNumberOfIPv4Subnets": {
+               "default": "Number of IPv4 subnets in VPC"
+            },
+            "VPCSubnetIPv6Size": {
+               "default": "Size of each IPv6 subnet in the VPC"
+            },
+            "VPCNumberOfIPv6Subnets": {
+               "default": "Number of IPv6 subnets in VPC"
+            },
+            "VPCFlowLogRetention": {
+               "default": "Days to retain VPC Flow Logs"
+            },
+            "ALB1SubnetsEnabled": {
+               "default": "Application Load Balancer tier"
+            },
+            "App1SubnetsInternetRoute": {
+               "default": "Application tier route to internet"
+            },
+            "App1SubnetsPrivateLinkEndpoints": {
+               "default": "Private Link Endpoints"
+            },
+            "DB1SubnetsEnabled": {
+               "default": "Database tier"
+            },
+            "DB1TCPPortNumber": {
+               "default": "TCP port number used by database"
+            },
+            "Shared1SubnetsEnabled": {
+               "default": "Shared tier"
+            }
+         }
+      }
+   }
+}
